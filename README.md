@@ -472,21 +472,45 @@ curl "http://127.0.0.1:5001/api/process?input=hello"      # the round trip
 > host network stack, so a listener on `127.0.0.1:5001` *in the app* is reachable as
 > `127.0.0.1:5001` *on the Mac* — which is why the host `curl` above proves the path.
 
-### Run on a physical iPad
+### Run on a physical iPad — the proven recipe (2026-06-03)
 
-Automatic signing needs an Apple ID signed into Xcode (free account is fine for
-sideloading to your own device — the app uses no restricted entitlements). One-time GUI
-steps on the Mac: unlock the iPad + **Trust This Computer**; enable **Developer Mode**
-(Settings → Privacy & Security → Developer Mode → restart); **Xcode → Settings →
-Accounts → add Apple ID**. Then, headless:
+Three prerequisites, each a one-time setup, in this order:
+
+1. **Apple ID in Xcode** — *Xcode → Settings → Accounts → add Apple ID* (team `QJW4S8BDFX`).
+   Free account is fine; the app uses no restricted entitlements.
+2. **Register the iPad UDID** at <https://developer.apple.com/account/resources/devices/list>.
+   A command-line `-destination 'generic/platform=iOS'` build **cannot** auto-register the
+   device — without this you get *"your team has no devices from which to generate a
+   provisioning profile."* (Only a GUI build with the device selected auto-registers.)
+3. **Trust + Developer Mode** — already in place here; verify headlessly over lockdownd
+   (pair record + EscrowBag ⇒ trusted; `GetValue` domain `com.apple.security.mac.amfi`
+   key `DeveloperModeStatus` ⇒ Developer Mode). The `devicectl`/CoreDevice stack was
+   unreliable; the libimobiledevice/usbmux stack below is what worked.
+
+**The build must run in the Mac's graphical login session.** Xcode's Apple ID account is
+invisible to a non-interactive SSH session — even with the login keychain unlocked it
+reports *"No Accounts"*. So drive `xcodebuild` from a Terminal in the desktop (or VNC).
+Relocate the build dirs out of the project's `build/` (it may be owned by another user):
 
 ```bash
-DEV_ID=$(xcrun devicectl list devices | awk '/connected/{print $(NF-1)}')   # the iPad UDID
+# In a Terminal inside the Mac's GUI session:
+cd ios
 xcodebuild -project EmbeddedKestrel.xcodeproj -target EmbeddedKestrelApp \
-  -sdk iphoneos -configuration Debug -destination "id=$DEV_ID" \
-  -allowProvisioningUpdates build
-xcrun devicectl device install app   --device "$DEV_ID" out/EmbeddedKestrelApp.app
-xcrun devicectl device process launch --device "$DEV_ID" org.steveackley.EmbeddedKestrelApp
+  -sdk iphoneos -configuration Debug -destination 'generic/platform=iOS' \
+  -allowProvisioningUpdates \
+  SYMROOT=/tmp/ek_sym OBJROOT=/tmp/ek_obj CONFIGURATION_BUILD_DIR=/tmp/ek_out build
+```
+
+Everything after the signed build is **headless over USB** (libimobiledevice, no keychain):
+
+```bash
+UDID=00008101-0019092E1EFA601E
+ideviceinstaller -u "$UDID" install /tmp/ek_out/EmbeddedKestrelApp.app
+iproxy -u "$UDID" 5001 5001 &                         # USB-tunnel device 127.0.0.1:5001 → Mac
+idevicedebug -u "$UDID" run org.steveackley.EmbeddedKestrelApp &   # launches the app
+                                                       # (debugserver attach needs the DDI
+                                                       #  mounted, but the launch still fires)
+curl "http://127.0.0.1:5001/api/process?input=hello"  # → on-device SHA-256 of "hello"
 ```
 
 ---
@@ -508,7 +532,7 @@ Run on a Mac mini (Apple Silicon), Xcode 26.5 / iPhoneSimulator 26.5 SDK, .NET 9
 | `curl …/api/process?input=hello,%20kestrel` | ✅ `length:14`, `hash:"a51ccdc7…44c65a93"` |
 | `curl …/health` | ✅ `ok` |
 | `-p:UseKestrel=true` publish | ❌ **NETSDK1082** (no ASP.NET runtime pack for iOS) — Kestrel-on-iOS confirmed dead on .NET 9 |
-| Physical iPad (`iPad13,18`) | ⏳ detected via `devicectl`, `state=unavailable` until trust + Developer Mode + Xcode Apple ID |
+| Physical iPad (`iPad13,18`, iPadOS 26.5) — **on-device round trip** (2026-06-03) | ✅ signed (team `QJW4S8BDFX`, UDID-scoped dev profile), installed via `ideviceinstaller` over usbmux, launched; `iproxy 5001` USB-tunneled `127.0.0.1:5001`; `curl …/api/process?input=hello` → `{"hash":"2cf24dba…938b9824","length":5,"processedAtUtc":"2026-06-03T22:27:23Z"}` — canonical SHA-256, computed on the iPad |
 
 **Bottom line:** the thesis is proven. A native iOS app reaches an untouched
 `netstandard2.0` library through an in-process HTTP server compiled with NativeAOT — over
