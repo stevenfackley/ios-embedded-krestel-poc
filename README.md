@@ -1,11 +1,19 @@
-# Embedded ASP.NET Core Kestrel inside a native iOS Swift app (.NET 9)
+# Embedding a .NET 9 backend inside a native iOS Swift app — NativeAOT + loopback HTTP
+
+> **About the name.** This began as an "embedded **Kestrel**" experiment — that's why the
+> repo and the `Kestrel*` types are named that way. **Kestrel turned out to be non-viable
+> on iOS:** there is no `Microsoft.AspNetCore.App` runtime pack for any `ios-*` RID, so a
+> Kestrel build fails to publish (`NETSDK1082`). The approach that was actually built and
+> proven instead hosts a dependency-free **loopback `TcpListener` (`RawHttpHost`)**
+> compiled with NativeAOT and reached over `127.0.0.1`. The `Kestrel` names are historical;
+> the shipped server is the raw loopback host.
 
 A production-shaped Proof of Concept proving this flow end-to-end:
 
 ```
 ┌────────────┐   http://127.0.0.1:5001    ┌───────────────────────────┐
 │  Swift UI  │ ─────────────────────────▶ │  Embedded server (.NET 9) │
-│ (SwiftUI)  │      URLSession GET         │  Kestrel  ⟷  RawHttpHost  │
+│ (SwiftUI)  │      URLSession GET         │ RawHttpHost (TcpListener) │
 │            │ ◀───────────────────────── │           │               │
 └────────────┘        JSON response        └───────────┼───────────────┘
                                                         ▼
@@ -19,11 +27,12 @@ A production-shaped Proof of Concept proving this flow end-to-end:
 app, *with no rewrite*, by hosting an in-process HTTP server compiled with NativeAOT and
 calling it over the loopback interface.
 
-> **Status: PROVEN on the iOS Simulator (2026-06-02).** A signed-free Simulator build
-> does the full round trip — `curl http://127.0.0.1:5001/api/process?input=hello` returns
-> the SHA-256 of `hello` computed by the netstandard2.0 `DataProcessor`. See
-> [Section 7](#7-results--what-was-actually-proven). Physical-device install is wired and
-> waiting only on an Apple ID sign-in (free account is sufficient).
+> **Status: PROVEN on a physical iPad (2026-06-03)** and on the iOS Simulator
+> (2026-06-02). On both, the full round trip — `curl
+> http://127.0.0.1:5001/api/process?input=hello` — returns the SHA-256 of `hello`
+> computed by the netstandard2.0 `DataProcessor` running inside the `RawHttpHost`
+> loopback server. On device the request is tunneled over USB with `iproxy`. See
+> [Section 7](#7-results--what-was-actually-proven).
 
 The server sits behind a one-method interface (`IBackendHost`) with **two
 implementations** selected at compile time by the `UseKestrel` MSBuild flag:
