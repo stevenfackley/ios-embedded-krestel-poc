@@ -1,0 +1,64 @@
+# XcodeGen spec — run `xcodegen generate` in this folder (on the Mac) to produce
+# EmbeddedKestrel.xcodeproj. Paths are relative to this file (ios/).
+#
+# The project links the NativeAOT shared library via an xcframework built by
+# build/publish-ios.sh. The lib is a self-contained .dylib wrapped in a
+# KestrelBackend.framework, so it is Embed & Sign'd (embedded) into the app.
+
+name: EmbeddedKestrel
+
+options:
+  bundleIdPrefix: org.steveackley
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    # Cleartext loopback + a hand-written bridging header are the only non-default
+    # build settings the interop needs; everything else is Xcode's iOS app default.
+    SWIFT_VERSION: "5.0"
+    ENABLE_BITCODE: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+targets:
+  EmbeddedKestrelApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: EmbeddedKestrelApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.steveackley.EmbeddedKestrelApp
+        PRODUCT_NAME: EmbeddedKestrelApp
+        INFOPLIST_FILE: EmbeddedKestrelApp/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+
+        # ── Device code signing ─────────────────────────────────────────────────
+        # Automatic signing: with the Apple ID (team QJW4S8BDFX) signed into Xcode,
+        # this mints the Apple Development cert + a development provisioning profile
+        # and registers the App ID — required to install on a physical iPad.
+        DEVELOPMENT_TEAM: QJW4S8BDFX
+        CODE_SIGN_STYLE: Automatic
+
+        # Swift ↔ C bridge: exposes kestrel_start / kestrel_stop to Swift.
+        SWIFT_OBJC_BRIDGING_HEADER: EmbeddedKestrelApp/EmbeddedKestrelApp-Bridging-Header.h
+
+        # Lets the bridging header resolve KestrelBackend.h. The xcframework also
+        # ships the header per-slice, but this keeps local editing/indexing happy.
+        HEADER_SEARCH_PATHS:
+          - $(SRCROOT)/EmbeddedKestrelApp
+
+        # ── No OTHER_LDFLAGS needed ─────────────────────────────────────────────
+        # The xcframework ships a self-contained KestrelBackend.dylib (the whole
+        # NativeAOT runtime + GC are linked in). Its only external deps are system
+        # libs/frameworks (libSystem, libobjc, libswiftCore, libz, libicucore,
+        # CoreFoundation, CryptoKit, Foundation, Security, GSS) — all recorded as
+        # LC_LOAD_DYLIB inside the framework binary, which dyld resolves at load.
+        # So the app target adds ZERO extra linker flags; embedding the framework
+        # (below) is the whole story.
+    dependencies:
+      # Shared framework (self-contained .dylib) → Embed & Sign, so the binary
+      # ships in the app's Frameworks/ dir and dyld finds it via @rpath at launch.
+      - framework: ../build/artifacts/KestrelBackend.xcframework
+        embed: true

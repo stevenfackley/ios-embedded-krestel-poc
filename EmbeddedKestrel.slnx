@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/KestrelBackend/KestrelBackend.csproj" />
+    <Project Path="src/LegacyLib/LegacyLib.csproj" />
+  </Folder>
+</Solution>

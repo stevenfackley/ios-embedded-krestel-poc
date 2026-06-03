@@ -1,0 +1,66 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Plain net9.0 (NOT net9.0-ios). The `-ios` TFM routes `dotnet publish`
+         through the Microsoft.iOS workload SDK, whose Publish target builds .app
+         bundles and ignores NativeLib=Static — it emits no .a (ILC never runs). For a
+         static lib that Xcode/Swift links, .NET 9's "NativeAOT for iOS-like platforms
+         without OS-specific APIs" path is the supported route: base net9.0 +
+         PublishAot + PublishAotUsingRuntimePack, cross-compiled via `-r ios-arm64`.
+         Output lands at bin/Release/net9.0/<rid>/publish/.
+         Ref: learn.microsoft.com/dotnet/core/deploying/native-aot/ios-like-platforms -->
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>KestrelBackend</RootNamespace>
+    <!-- No RuntimeIdentifier here: pass -r ios-arm64 / iossimulator-arm64 at publish. -->
+
+    <!-- NativeAOT output. Effective at `dotnet publish`; a plain `dotnet build` still
+         produces a normal managed assembly for sanity checks. PublishAotUsingRuntimePack
+         is REQUIRED for Apple RIDs — without it the SDK rejects ios-arm64 with NETSDK1203
+         ("AOT not supported for this RID"). -->
+    <PublishAot>true</PublishAot>
+    <PublishAotUsingRuntimePack>true</PublishAotUsingRuntimePack>
+    <!-- Deliberately NO <NativeLib>. The documented .NET 9 "NativeAOT for iOS-like
+         platforms" path lets the DEFAULT publish output be a self-contained shared
+         library — KestrelBackend.dylib — which we wrap in a .framework (Embed & Sign).
+         Do NOT set NativeLib:
+           • Static → emits KestrelBackend.a, but MS docs explicitly DON'T cover consuming
+             a static AOT lib on iOS (you'd hand-link ~8 runtime/PAL archives). Unsupported.
+           • Shared → on an Apple RID routes through the Mono `mobile-librarybuilder`
+             workload (pulls Mono 8.0.27 packs, dies MSB4022 under a 9.0 SDK).
+         Also never pass -p:NativeLib on the CLI — it propagates to LegacyLib (ns2.0) and
+         trips NETSDK1147 (mobile-librarybuilder required).
+         Ref: learn.microsoft.com/dotnet/core/deploying/native-aot/ios-like-platforms -->
+
+
+    <!-- Trim/size/AOT switches: drop reflection-heavy + diagnostic features so the
+         linker has the best chance with Kestrel, and to shrink the static lib. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EventSourceSupport>false</EventSourceSupport>
+    <StackTraceSupport>false</StackTraceSupport>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <AutoreleasePoolSupport>true</AutoreleasePoolSupport>
+
+    <!-- Compile-time request-delegate generation: makes Minimal API MapGet lambdas
+         AOT-safe (no runtime reflection emit). -->
+    <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+  </PropertyGroup>
+
+  <!-- ASP.NET Core is opt-in. The framework pack is NOT published for the iOS RID,
+       so referencing it unconditionally would break `restore`. Gating it keeps the
+       project (and the raw-socket fallback) building while we spike Kestrel:
+         dotnet publish -r ios-arm64 -p:UseKestrel=true   → real Kestrel
+         dotnet publish -r ios-arm64                       → RawHttpHost fallback -->
+  <PropertyGroup Condition="'$(UseKestrel)' == 'true'">
+    <DefineConstants>$(DefineConstants);USE_KESTREL</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseKestrel)' == 'true'">
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LegacyLib\LegacyLib.csproj" />
+  </ItemGroup>
+
+</Project>
