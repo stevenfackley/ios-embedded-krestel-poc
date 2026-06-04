@@ -24,8 +24,8 @@ internal sealed class LimitsModule : ICapabilityModule
             "AssemblyBuilder / ILGenerator requires runtime codegen",
             Verdict.Fails, "NotSupportedException on NativeAOT; Emit APIs removed from iOS framework"),
         new("limit.process", "Limitations", "Process.Start()",
-            "Process.Start() blocked by iOS app sandbox",
-            Verdict.Fails, "PlatformNotSupportedException on iOS; use NSTask (ObjC) if needed"),
+            "Process.Start() blocked by iOS sandbox; GetCurrentProcess() works",
+            Verdict.Limited, "GetCurrentProcess() returns the host PID; Process.Start() throws PlatformNotSupportedException — use NSTask (ObjC) for subprocesses"),
         new("limit.dynamicload", "Limitations", "Assembly.LoadFrom()",
             "Dynamic assembly loading not supported on NativeAOT / iOS",
             Verdict.Fails, "NotSupportedException; all code must be statically linked at build time"),
@@ -121,7 +121,7 @@ internal sealed class LimitsModule : ICapabilityModule
         {
             using var p = Process.GetCurrentProcess();
             return Limited("limit.process", "Limitations", "Process.Start()",
-                $"GetCurrentProcess() works on JIT (PID={p.Id}); " +
+                $"GetCurrentProcess() works (PID={p.Id}); " +
                 "Process.Start() throws PlatformNotSupportedException on iOS sandbox");
         }
         catch (Exception ex)
