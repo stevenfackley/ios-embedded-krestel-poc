@@ -74,6 +74,23 @@ public sealed class ModuleTests : IClassFixture<HostFixture>
     [Fact] public async Task Persistence_Sqlite_Works()   => AssertWorks(await RunProbeAsync("persist.sqlite"));
     [Fact] public async Task Persistence_JsonFile_Works() => AssertWorks(await RunProbeAsync("persist.jsonfile"));
     [Fact] public async Task Persistence_FileIo_Works()   => AssertWorks(await RunProbeAsync("persist.fileio"));
+    [Fact] public async Task Persistence_Sqlcipher_Works() => AssertWorks(await RunProbeAsync("persist.sqlcipher"));
+
+    [Fact]
+    public async Task Persistence_Sqlcipher_ProvesEncryptionAtRest()
+    {
+        var el = await RunProbeAsync("persist.sqlcipher");
+        AssertWorks(el);
+        var output = el.GetProperty("output");
+        // SQLCipher engine identifies itself (e.g. "4.5.6 community")
+        Assert.False(string.IsNullOrWhiteSpace(output.GetProperty("cipherVersion").GetString()));
+        // The on-disk file header is NOT the "SQLite format 3\0" magic → encrypted at rest
+        Assert.True(output.GetProperty("headerIsCiphertext").GetBoolean());
+        // Opening with the wrong key is rejected
+        Assert.True(output.GetProperty("wrongKeyRejected").GetBoolean());
+        // Opening with the correct key recovers the row
+        Assert.True(output.GetProperty("roundTripOk").GetBoolean());
+    }
 
     [Fact]
     public async Task Notes_CreateListDelete()
