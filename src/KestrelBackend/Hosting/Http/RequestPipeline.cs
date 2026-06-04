@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
 namespace KestrelBackend;
@@ -10,8 +11,13 @@ namespace KestrelBackend;
 internal sealed class RequestPipeline
 {
     private readonly Router _router;
+    private readonly ILogger? _logger;
 
-    public RequestPipeline(Router router) => _router = router;
+    public RequestPipeline(Router router, ILogger? logger = null)
+    {
+        _router = router;
+        _logger = logger;
+    }
 
     public Task<HttpResponse> ProcessAsync(HttpRequest request, CancellationToken ct)
     {

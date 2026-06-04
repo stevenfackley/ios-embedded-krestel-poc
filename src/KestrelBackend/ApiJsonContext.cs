@@ -13,7 +13,12 @@ namespace KestrelBackend;
 [JsonSerializable(typeof(ProcessResult))]
 [JsonSerializable(typeof(ProblemDetails))]
 [JsonSerializable(typeof(LogEntry))]
-[JsonSerializable(typeof(List<LogEntry>))]
+[JsonSerializable(typeof(IReadOnlyList<LogEntry>))]
+[JsonSerializable(typeof(DiagInfo))]
+[JsonSerializable(typeof(CapabilityDescriptor))]
+[JsonSerializable(typeof(IReadOnlyList<CapabilityDescriptor>))]
+[JsonSerializable(typeof(CapabilityResult))]
+[JsonSerializable(typeof(IReadOnlyList<CapabilityResult>))]
 internal partial class ApiJsonContext : JsonSerializerContext
 {
 }

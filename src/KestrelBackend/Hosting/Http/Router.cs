@@ -1,7 +1,11 @@
 namespace KestrelBackend;
 
 using RouteValues = IReadOnlyDictionary<string, string>;
-using RouteHandler = Func<HttpRequest, IReadOnlyDictionary<string, string>, CancellationToken, Task<HttpResponse>>;
+
+internal delegate Task<HttpResponse> RouteHandler(
+    HttpRequest request,
+    IReadOnlyDictionary<string, string> routeValues,
+    CancellationToken ct);
 
 internal sealed class Router
 {

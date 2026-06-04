@@ -17,7 +17,7 @@ namespace KestrelBackend;
 /// </remarks>
 public static class NativeBootstrap
 {
-    private static IBackendHost? _host;
+    private static IDisposable? _host;
     private static readonly object Gate = new();
 
     /// <summary>Starts the embedded server. Idempotent and non-blocking.</summary>
@@ -30,20 +30,15 @@ public static class NativeBootstrap
         {
             lock (Gate)
             {
-                if (_host is not null)
-                {
-                    return 0;
-                }
-
-                IBackendHost host = HostFactory.Create();
-                host.Start(port);
+                if (_host is not null) return 0;
+                var (host, _) = ServerComposition.CreateHost(port);
                 _host = host;
             }
-
             return 0;
         }
-        catch
+        catch (Exception ex)
         {
+            NativeErrorBuffer.Capture("StartFailed", ex.Message, null);
             return -1;
         }
     }
@@ -56,7 +51,7 @@ public static class NativeBootstrap
         {
             lock (Gate)
             {
-                _host?.Stop();
+                _host?.Dispose();
                 _host = null;
             }
         }

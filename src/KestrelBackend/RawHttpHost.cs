@@ -6,14 +6,18 @@ using LegacyLib;
 namespace KestrelBackend;
 
 /// <summary>
-/// Dependency-free HTTP/1.1 server used when the ASP.NET Core framework pack is not
-/// available for the iOS target. Selects an ephemeral port when port 0 is passed.
-/// Task 0.6 wires this onto the middleware pipeline; until then it routes directly.
+/// Dependency-free HTTP/1.1 server. Selects an ephemeral port when port 0 is passed.
+/// When constructed with a <see cref="RequestPipeline"/> (Task 0.6+), every accepted
+/// connection dispatches through the full middleware stack; without one it routes
+/// directly (used only by the legacy TestHost path before composition is wired).
 /// </summary>
 internal sealed class RawHttpHost : IBackendHost
 {
+    private readonly RequestPipeline? _pipeline;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
+
+    public RawHttpHost(RequestPipeline? pipeline = null) => _pipeline = pipeline;
 
     public int BoundPort { get; private set; }
 
@@ -72,7 +76,9 @@ internal sealed class RawHttpHost : IBackendHost
                 }
 
                 var request = HttpRequest.Parse(buf.AsSpan(0, total));
-                var response = Route(request);
+                var response = _pipeline is not null
+                    ? await _pipeline.ProcessAsync(request, ct).ConfigureAwait(false)
+                    : Route(request);
                 await stream.WriteAsync(response.ToBytes().AsMemory(), ct).ConfigureAwait(false);
                 await stream.FlushAsync(ct).ConfigureAwait(false);
 
