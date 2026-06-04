@@ -24,7 +24,7 @@ struct DashboardView: View {
     // MARK: - Sections
 
     private var serverStatusSection: some View {
-        Section("Server") {
+        Section {
             LabeledContent("Status") {
                 HStack(spacing: 6) {
                     Circle()
@@ -35,6 +35,7 @@ struct DashboardView: View {
                 }
             }
             if server.isRunning {
+                LabeledContent("Host", value: server.hostType.isEmpty ? "—" : server.hostType)
                 LabeledContent("Port", value: "\(server.boundPort)")
                 LabeledContent("Message", value: server.statusMessage)
             }
@@ -43,6 +44,10 @@ struct DashboardView: View {
                     Task { await server.startIfNeeded() }
                 }
             }
+        } header: {
+            Text("Server")
+        } footer: {
+            Text("In-process host: RawHttpHost — a raw TCP listener with a minimal HTTP/1.1 parser. This is NOT Kestrel: there is no ASP.NET Core / Kestrel runtime pack for the iOS NativeAOT target.")
         }
     }
 

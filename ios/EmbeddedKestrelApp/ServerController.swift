@@ -12,6 +12,7 @@ final class ServerController: ObservableObject {
 
     @Published private(set) var isRunning = false
     @Published private(set) var boundPort = 0
+    @Published private(set) var hostType = ""
     @Published private(set) var statusMessage = "Not started"
 
     private let session: URLSession
@@ -30,33 +31,48 @@ final class ServerController: ObservableObject {
         statusMessage = "Starting…"
         let rc = kestrel_start(0)   // 0 = OS-assigned ephemeral port
         guard rc == 0 else {
-            statusMessage = "Start failed (rc=\(rc))"
+            let err = lastNativeError()
+            NSLog("EmbeddedKestrelApp: native start failed rc=\(rc): \(err)")
+            statusMessage = "Start failed (rc=\(rc)): \(err)"
             return
         }
-        boundPort = discoverPort()
+        if let info = readInfo() {
+            boundPort = info.port
+            hostType  = info.hostType
+        }
         isRunning = boundPort > 0
         statusMessage = isRunning ? "Running on port \(boundPort)" : "Started — port unknown"
+        NSLog("EmbeddedKestrelApp: \(hostType.isEmpty ? "host" : hostType) listening on 127.0.0.1:\(boundPort)")
+    }
+
+    /// Reads the native error buffer ("type|message|correlationId") for surfacing.
+    private func lastNativeError() -> String {
+        var buf = [UInt8](repeating: 0, count: 2048)
+        let n = buf.withUnsafeMutableBufferPointer {
+            kestrel_last_error($0.baseAddress, Int32($0.count))
+        }
+        guard n > 0 else { return "(no error buffered, rc=\(n))" }
+        return String(decoding: buf.prefix(Int(n)), as: UTF8.self)
     }
 
     func stop() {
         kestrel_stop()
         isRunning     = false
         boundPort     = 0
+        hostType      = ""
         statusMessage = "Stopped"
     }
 
     // MARK: - Port discovery
 
-    private func discoverPort() -> Int {
+    private func readInfo() -> DiagInfoResponse? {
         var buf = [UInt8](repeating: 0, count: 1024)
         let written = buf.withUnsafeMutableBufferPointer {
             kestrel_info($0.baseAddress, Int32($0.count))
         }
-        guard written > 0 else { return 0 }
-        guard let info = try? decoder.decode(
+        guard written > 0 else { return nil }
+        return try? decoder.decode(
             DiagInfoResponse.self, from: Data(buf.prefix(Int(written))))
-        else { return 0 }
-        return info.port
     }
 
     // MARK: - Shared URL / decoder helpers

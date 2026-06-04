@@ -32,13 +32,22 @@ enum Verdict: String, Codable, Hashable, Sendable, CaseIterable {
 // MARK: - Capability descriptors & results
 
 struct CapabilityDescriptor: Codable, Identifiable, Sendable {
-    // Remap `id` JSON key to avoid conflict with Identifiable.id
     let id: String
     let category: String
     let title: String
-    let detail: String
-    let verdict: Verdict
-    let aotNotes: String
+    // Swift property names kept stable for views; wire keys bridged via CodingKeys.
+    let detail: String      // wire: "summary"
+    let verdict: Verdict    // wire: "expected"
+    let mechanism: String   // wire: "mechanism" (was the now-removed `aotNotes`)
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case category
+        case title
+        case detail   = "summary"
+        case verdict  = "expected"
+        case mechanism
+    }
 }
 
 struct CapabilityResult: Codable, Identifiable, Sendable {
@@ -47,10 +56,20 @@ struct CapabilityResult: Codable, Identifiable, Sendable {
     let title: String?
     let verdict: Verdict
     let detail: String?
+    let output: JSONValue?       // arbitrary JSON (object/array/null); round-trips, not consumed by views
     let elapsedMs: Double
     let correlationId: String?
-    let error: String?
-    // `output` (JsonElement?) omitted — ignored by JSONDecoder for unknown keys
+    let error: ProblemDetails?   // wire sends a ProblemDetails object or null, not a string
+}
+
+// RFC 7807 problem details, as emitted by the .NET backend.
+struct ProblemDetails: Codable, Sendable {
+    let type: String
+    let title: String
+    let status: Int
+    let detail: String?
+    let correlationId: String
+    let instance: String?
 }
 
 // MARK: - Diagnostics
@@ -67,10 +86,11 @@ struct DiagInfoResponse: Codable, Sendable {
 
 struct LogEntry: Codable, Identifiable, Sendable {
     let seq: Int
+    let timestampUtc: String   // wire: "timestampUtc" (was mis-named `timestamp`)
     let level: String
     let category: String
+    let eventId: Int
     let message: String
-    let timestamp: String
     let correlationId: String?
 
     var id: Int { seq }
@@ -102,6 +122,53 @@ struct RegexResult: Codable, Sendable {
     let input: String
     let matchCount: Int
     let words: [String]
+}
+
+// MARK: - Arbitrary JSON
+
+/// Minimal `Codable` representation of an arbitrary JSON value, used for fields
+/// (e.g. CapabilityResult.output) whose shape is server-defined. Round-trips
+/// faithfully; views don't currently read it.
+enum JSONValue: Codable, Sendable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case object([String: JSONValue])
+    case array([JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let v = try? container.decode(Bool.self) {
+            self = .bool(v)
+        } else if let v = try? container.decode(Double.self) {
+            self = .number(v)
+        } else if let v = try? container.decode(String.self) {
+            self = .string(v)
+        } else if let v = try? container.decode([String: JSONValue].self) {
+            self = .object(v)
+        } else if let v = try? container.decode([JSONValue].self) {
+            self = .array(v)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported JSON value")
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try container.encode(v)
+        case .number(let v): try container.encode(v)
+        case .bool(let v):   try container.encode(v)
+        case .object(let v): try container.encode(v)
+        case .array(let v):  try container.encode(v)
+        case .null:          try container.encodeNil()
+        }
+    }
 }
 
 // MARK: - Errors
