@@ -11,21 +11,30 @@ namespace KestrelBackend;
 /// </summary>
 internal sealed class PersistenceModule : ICapabilityModule
 {
-    private readonly SqliteConnection _db;
-    private readonly List<NoteRecord> _jsonStore = [];
+    private readonly Lazy<SqliteConnection> _lazyDb = new(OpenDatabase);
 
-    public PersistenceModule()
+    // Opened on first use, NOT in the constructor. If the SQLitePCLRaw native
+    // provider fails to initialize under NativeAOT/iOS, the throw lands inside a
+    // probe or endpoint (caught by CapabilityCatalog → Fails verdict) instead of
+    // aborting host construction and taking the entire server offline.
+    private SqliteConnection Db => _lazyDb.Value;
+
+    private static SqliteConnection OpenDatabase()
     {
-        _db = new SqliteConnection("Data Source=:memory:");
-        _db.Open();
-        using var cmd = _db.CreateCommand();
+        // Microsoft.Data.Sqlite.Core ships no provider; register the statically-linked
+        // e_sqlcipher bundle explicitly. Idempotent and AOT-safe (no reflection).
+        SQLitePCL.Batteries_V2.Init();
+        var db = new SqliteConnection("Data Source=:memory:");
+        db.Open();
+        using var cmd = db.CreateCommand();
         cmd.CommandText = "CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)";
         cmd.ExecuteNonQuery();
+        return db;
     }
 
     public IEnumerable<CapabilityDescriptor> Describe() =>
     [
-        new("persist.sqlite",  "Persistence", "SQLite in-memory", "Microsoft.Data.Sqlite CREATE/INSERT/SELECT in :memory:", Verdict.Works, "M.Data.Sqlite; iOS sandbox-safe (in-memory)"),
+        new("persist.sqlite",  "Persistence", "SQLite in-memory", "Microsoft.Data.Sqlite CREATE/INSERT/SELECT in :memory:", Verdict.Works, "M.Data.Sqlite.Core + statically-linked e_sqlcipher (only SQLitePCLRaw bundle with iOS native libs)"),
         new("persist.jsonfile", "Persistence", "JSON file store",  "Simple STJ-backed in-memory list (file I/O disabled in iOS sandbox)", Verdict.Works, "STJ List<T>; no file I/O"),
         new("persist.fileio",  "Persistence", "Temp file I/O",    "File.WriteAllText/ReadAllText in Path.GetTempPath()",  Verdict.Works, "System.IO.File; sandbox temp dir"),
     ];
@@ -50,13 +59,13 @@ internal sealed class PersistenceModule : ICapabilityModule
 
     private CapabilityResult RunSqlite()
     {
-        using var tx = _db.BeginTransaction();
-        using var ins = _db.CreateCommand();
+        using var tx = Db.BeginTransaction();
+        using var ins = Db.CreateCommand();
         ins.CommandText = "INSERT INTO notes (body) VALUES (@b)";
         ins.Parameters.AddWithValue("@b", "probe note");
         ins.ExecuteNonQuery();
 
-        using var sel = _db.CreateCommand();
+        using var sel = Db.CreateCommand();
         sel.CommandText = "SELECT COUNT(*) FROM notes";
         long count = (long)(sel.ExecuteScalar() ?? 0L);
         tx.Rollback();
@@ -105,7 +114,7 @@ internal sealed class PersistenceModule : ICapabilityModule
             ? Encoding.UTF8.GetString(req.Body.Span)
             : req.Query.TryGetValue("body", out string? b) ? b : "untitled";
 
-        using var ins = _db.CreateCommand();
+        using var ins = Db.CreateCommand();
         ins.CommandText = "INSERT INTO notes (body) VALUES (@b); SELECT last_insert_rowid();";
         ins.Parameters.AddWithValue("@b", body);
         long id = (long)(ins.ExecuteScalar() ?? 0L);
@@ -120,7 +129,7 @@ internal sealed class PersistenceModule : ICapabilityModule
         if (!long.TryParse(rv["id"], out long id))
             return Task.FromResult(HttpResponse.Problem(HttpStatus.BadRequest, "id must be an integer"));
 
-        using var del = _db.CreateCommand();
+        using var del = Db.CreateCommand();
         del.CommandText = "DELETE FROM notes WHERE id = @id";
         del.Parameters.AddWithValue("@id", id);
         int affected = del.ExecuteNonQuery();
@@ -133,7 +142,7 @@ internal sealed class PersistenceModule : ICapabilityModule
     private List<NoteRecord> GetAllRows()
     {
         var rows = new List<NoteRecord>();
-        using var sel = _db.CreateCommand();
+        using var sel = Db.CreateCommand();
         sel.CommandText = "SELECT id, body FROM notes";
         using var reader = sel.ExecuteReader();
         while (reader.Read())
