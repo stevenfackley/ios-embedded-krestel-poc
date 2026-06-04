@@ -11,7 +11,7 @@ namespace KestrelBackend;
 /// </summary>
 internal static class ServerComposition
 {
-    public static (IDisposable host, int port) CreateHost(int port)
+    public static (IDisposable host, int port) CreateHost(int port, IEnumerable<ICapabilityModule>? extraModules = null)
     {
         var sink = new RingBufferSink(capacity: 500);
 
@@ -26,6 +26,11 @@ internal static class ServerComposition
         // Capability modules — populated in Phase 2+. Registered here so the DI
         // graph resolves them in order; each module is ICapabilityModule.
         RegisterModules(services);
+
+        // Allow callers (test harness, integration tests) to inject additional modules
+        if (extraModules is not null)
+            foreach (var m in extraModules)
+                services.AddSingleton<ICapabilityModule>(m);
 
         // Catalog aggregates all registered modules
         services.AddSingleton<CapabilityCatalog>(sp =>
