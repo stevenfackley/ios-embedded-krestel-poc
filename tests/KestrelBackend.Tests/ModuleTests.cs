@@ -160,15 +160,28 @@ public sealed class ModuleTests : IClassFixture<HostFixture>
     // ── Smoke: run-all returns all probes as Works ────────────────────────────
 
     [Fact]
-    public async Task RunAll_AllProbesWork()
+    public async Task RunAll_AdvantageProbesWork()
     {
         var resp = await _client.PostAsync("/api/capabilities/run-all", null);
         resp.EnsureSuccessStatusCode();
         var arr = JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement;
         Assert.Equal(JsonValueKind.Array, arr.ValueKind);
         int count = arr.GetArrayLength();
-        Assert.True(count >= 25, $"Expected at least 25 probes, got {count}");
-        Assert.All(arr.EnumerateArray(), e =>
+        Assert.True(count >= 35, $"Expected at least 35 probes (25 Works + 12 Limits), got {count}");
+
+        // Advantage probes (not limit.*) must all return Works
+        var nonLimits = arr.EnumerateArray()
+            .Where(e => !e.GetProperty("id").GetString()!.StartsWith("limit."))
+            .ToList();
+        Assert.All(nonLimits, e =>
             Assert.Equal("Works", e.GetProperty("verdict").GetString()));
+
+        // Limitation probes must not return Works
+        var limits = arr.EnumerateArray()
+            .Where(e => e.GetProperty("id").GetString()!.StartsWith("limit."))
+            .ToList();
+        Assert.Equal(12, limits.Count);
+        Assert.All(limits, e =>
+            Assert.NotEqual("Works", e.GetProperty("verdict").GetString()));
     }
 }

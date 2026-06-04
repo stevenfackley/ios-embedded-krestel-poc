@@ -65,6 +65,7 @@ internal static class ServerComposition
         services.AddSingleton<ICapabilityModule, CompressionModule>();
         services.AddSingleton<ICapabilityModule>(sp => new CompositionModule(sp));
         services.AddSingleton<ICapabilityModule, LegacyModule>();
+        services.AddSingleton<ICapabilityModule, LimitsModule>();
     }
 
     private static Router BuildRoutes(RingBufferSink sink, CapabilityCatalog catalog, ILogger logger)
