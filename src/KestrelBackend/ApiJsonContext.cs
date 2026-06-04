@@ -11,6 +11,7 @@ namespace KestrelBackend;
 /// </summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ProcessResult))]
+[JsonSerializable(typeof(ProblemDetails))]
 internal partial class ApiJsonContext : JsonSerializerContext
 {
 }
