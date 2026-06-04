@@ -63,15 +63,39 @@ targets:
       - framework: ../build/artifacts/KestrelBackend.xcframework
         embed: true
 
+  # UI smoke test that drives the embedded server end-to-end in the simulator:
+  # launches the app, navigates Capabilities → SQLCipher → Run, and attaches a
+  # screenshot at each step (the SQLCipher encryption-at-rest proof is captured
+  # from the live `output` object). Run with:
+  #   xcodebuild test -scheme EmbeddedKestrelApp -sdk iphonesimulator \
+  #     -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
+  EmbeddedKestrelUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: EmbeddedKestrelUITests
+    dependencies:
+      - target: EmbeddedKestrelApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.steveackley.EmbeddedKestrelUITests
+        TEST_TARGET_NAME: EmbeddedKestrelApp
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: QJW4S8BDFX
+
 schemes:
   EmbeddedKestrelApp:
     build:
       targets:
         EmbeddedKestrelApp: all
+        EmbeddedKestrelUITests: [test]
     run:
       config: Release
     test:
-      config: Release
+      config: Debug
+      targets:
+        - EmbeddedKestrelUITests
     profile:
       config: Release
     analyze:
