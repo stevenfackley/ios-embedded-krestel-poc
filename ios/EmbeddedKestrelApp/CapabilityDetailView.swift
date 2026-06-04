@@ -7,8 +7,8 @@ import SwiftUI
 
 struct CapabilityDetailView: View {
     @EnvironmentObject private var server: ServerController
-    @ObservedObject var viewModel: CapabilitiesViewModel
     let descriptor: CapabilityDescriptor
+    @ObservedObject var viewModel: CapabilitiesViewModel
 
     private var result: CapabilityResult? { viewModel.results[descriptor.id] }
     private var isRunning: Bool { viewModel.isRunning(descriptor.id) }
@@ -156,7 +156,6 @@ struct OutputRow: View {
 #Preview {
     NavigationStack {
         CapabilityDetailView(
-            viewModel: CapabilitiesViewModel(),
             descriptor: CapabilityDescriptor(
                 id: "persist.sqlcipher",
                 category: "Persistence",
@@ -164,7 +163,8 @@ struct OutputRow: View {
                 detail: "Keyed on-disk DB: cipher_version, ciphertext header, wrong-key rejected, round-trip",
                 verdict: .works,
                 mechanism: "Password=key → PRAGMA key (SQLCipher)"
-            )
+            ),
+            viewModel: CapabilitiesViewModel()
         )
         .environmentObject(ServerController.shared)
     }
