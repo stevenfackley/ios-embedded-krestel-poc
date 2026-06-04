@@ -42,6 +42,14 @@
     <UseSystemResourceKeys>true</UseSystemResourceKeys>
     <AutoreleasePoolSupport>true</AutoreleasePoolSupport>
 
+    <!-- .NET 9's ILC (9.0.16) force-adds `-ld_classic` to the native link for any
+         Xcode >= 15 (Microsoft.NETCore.Native.Unix.targets). That flag was a workaround
+         for a bug in the *then-new* ld_prime linker. Under Xcode 26.5 the situation is
+         reversed: ld_prime is the mature default and the CLASSIC linker crashes
+         (`ld: Assertion failed: (it != _dylibToOrdinal.end()) ... OutputFile.cpp:5196`),
+         aborting the dylib link. Opting out restores the modern linker. -->
+    <UseLdClassicXCodeLinker>false</UseLdClassicXCodeLinker>
+
     <!-- Compile-time request-delegate generation: makes Minimal API MapGet lambdas
          AOT-safe (no runtime reflection emit). -->
     <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
@@ -68,7 +76,33 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <!-- SQLite on NativeAOT iOS. The stock SQLitePCLRaw.bundle_e_sqlite3 ships NO iOS
+         native library (only linux/win/osx/maccatalyst/wasm), so on iOS its provider's
+         P/Invokes have no backing lib and the type initializer throws
+         (TypeInitializationException) — taking persist.sqlite from Works to Fails.
+         The e_sqlcipher bundle is the ONLY SQLitePCLRaw bundle that ships iOS device +
+         simulator static libs, so we use Microsoft.Data.Sqlite.Core + bundle_e_sqlcipher.
+         SQLCipher is full SQLite; with no PRAGMA key it runs exactly as plaintext SQLite.
+         On Windows (tests) the bundle resolves its win-x64 native automatically. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="9.0.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
+    <!-- Restored only to resolve the iOS static-lib path below; contributes no assets
+         (ExcludeAssets=all avoids any net9.0/-ios TFM incompatibility at restore). -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlcipher.ios" Version="2.1.11"
+                      GeneratePathProperty="true" ExcludeAssets="all" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Hand-link the e_sqlcipher static lib into the NativeAOT image for Apple RIDs.
+       DirectPInvoke binds the provider's P/Invokes (DLL name "e_sqlcipher") to the
+       statically linked symbols instead of a runtime dlopen of a (nonexistent) .dylib.
+       The bundle's own auto-link .targets only fire for -ios TFMs, not plain net9.0. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64'">
+    <DirectPInvoke Include="e_sqlcipher" />
+    <NativeLibrary Include="$(PkgSQLitePCLRaw_lib_e_sqlcipher_ios)/static/simulator/e_sqlcipher.a" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
+    <DirectPInvoke Include="e_sqlcipher" />
+    <NativeLibrary Include="$(PkgSQLitePCLRaw_lib_e_sqlcipher_ios)/static/device/e_sqlcipher.a" />
   </ItemGroup>
 
   <ItemGroup>

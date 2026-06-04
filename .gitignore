@@ -20,3 +20,8 @@ DerivedData/
 
 # ── macOS / editor cruft ──────────────────────────────────────────────
 .DS_Store
+
+# Transient build logs / ad-hoc sim build dirs
+build/*.log
+ios/*.log
+ios/build-*/

@@ -36,9 +36,27 @@ public static unsafe class NativeBootstrap
         }
         catch (Exception ex)
         {
-            NativeErrorBuffer.Capture("StartFailed", ex.Message, null);
+            NativeErrorBuffer.Capture("StartFailed", DescribeException(ex), null);
             return -1;
         }
+    }
+
+    /// <summary>
+    /// Flattens an exception and its InnerException chain into one line. NativeAOT
+    /// builds here set UseSystemResourceKeys=true and StackTraceSupport=false, which
+    /// reduce a TypeInitializationException's own message to a bare resource key
+    /// (e.g. "TypeInitialization_Type_NoTypeAvailable"). The real culprit lives in
+    /// the inner exception, so we walk the whole chain.
+    /// </summary>
+    private static string DescribeException(Exception ex)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (Exception? e = ex; e is not null; e = e.InnerException)
+        {
+            if (sb.Length > 0) sb.Append(" <- ");
+            sb.Append(e.GetType().Name).Append(": ").Append(e.Message);
+        }
+        return sb.ToString();
     }
 
     /// <summary>Stops the embedded server if it is running.</summary>

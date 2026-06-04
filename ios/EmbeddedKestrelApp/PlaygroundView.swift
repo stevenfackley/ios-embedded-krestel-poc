@@ -21,7 +21,7 @@ struct PlaygroundView: View {
 
 struct CryptoPlayground: View {
     @EnvironmentObject private var server: ServerController
-    @State private var input = "hello, kestrel"
+    @State private var input = "hello, world"
     @State private var result: CryptoHashResult?
     @State private var isLoading = false
     @State private var error: String?

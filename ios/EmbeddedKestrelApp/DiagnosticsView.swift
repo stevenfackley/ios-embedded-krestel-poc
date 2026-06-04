@@ -30,13 +30,18 @@ struct DiagnosticsView: View {
     // MARK: - Info section
 
     private func infoSection(_ info: DiagInfoResponse) -> some View {
-        Section("Server Info") {
+        Section {
+            LabeledContent("Host",     value: info.hostType)
             LabeledContent("Port",     value: "\(info.port)")
             LabeledContent("Uptime",   value: String(format: "%.1f s", info.uptimeSeconds))
             LabeledContent("Requests", value: "\(info.requestsServed)")
             LabeledContent(".NET",     value: info.dotnetVersion)
             LabeledContent("OS",       value: String(info.os.prefix(50)))
             LabeledContent("Arch",     value: info.processArch)
+        } header: {
+            Text("Server Info")
+        } footer: {
+            Text("Host \"RawHttpHost\" is this PoC's embedded raw TCP listener — not Kestrel.")
         }
     }
 
