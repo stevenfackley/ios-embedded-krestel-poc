@@ -8,6 +8,12 @@ internal sealed class DiagInfo
     private static readonly System.Diagnostics.Stopwatch _uptime = System.Diagnostics.Stopwatch.StartNew();
     private static long _requestsServed;
 
+    // Set by NativeBootstrap.Start so kestrel_info and /api/diag/info report the bound port.
+    internal static int PortForInfo;
+
+    [JsonPropertyName("port")]
+    public int Port { get; init; }
+
     [JsonPropertyName("dotnetVersion")]
     public string DotnetVersion { get; init; } = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription;
 
@@ -35,6 +41,7 @@ internal sealed class DiagInfo
         IncrementRequests();
         var info = new DiagInfo
         {
+            Port = PortForInfo,
             UptimeSeconds = _uptime.Elapsed.TotalSeconds,
             RequestsServed = System.Threading.Interlocked.Read(ref _requestsServed)
         };
@@ -46,6 +53,7 @@ internal sealed class DiagInfo
     {
         var info = new DiagInfo
         {
+            Port = PortForInfo,
             UptimeSeconds = _uptime.Elapsed.TotalSeconds,
             RequestsServed = System.Threading.Interlocked.Read(ref _requestsServed)
         };

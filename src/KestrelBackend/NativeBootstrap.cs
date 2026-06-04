@@ -3,26 +3,23 @@ using System.Runtime.InteropServices;
 namespace KestrelBackend;
 
 /// <summary>
-/// Native entry points exported from the NativeAOT static library. Swift calls
-/// <c>kestrel_start</c> during app launch to boot the loopback server on a background
-/// thread, and <c>kestrel_stop</c> on teardown.
+/// Native entry points exported from the NativeAOT static library.
 /// </summary>
 /// <remarks>
 /// Rules of the native boundary (enforced below):
-///   • methods are <c>static</c> and take only blittable arguments (<c>int</c>);
+///   • methods are <c>static</c> with only blittable args (<c>int</c>, <c>byte*</c>);
 ///   • no managed exception may unwind into native code — everything is caught and
-///     surfaced as an <c>int</c> return code instead.
-/// The .NET runtime is initialized lazily on the first managed call into the static
-/// library, so no explicit runtime-init export is required.
+///     surfaced as an <c>int</c> return code;
+///   • unsafe spans are created with checked lengths to prevent buffer overruns.
 /// </remarks>
-public static class NativeBootstrap
+public static unsafe class NativeBootstrap
 {
     private static IDisposable? _host;
     private static readonly object Gate = new();
 
     /// <summary>Starts the embedded server. Idempotent and non-blocking.</summary>
-    /// <param name="port">TCP port on the loopback interface (e.g. 5001).</param>
-    /// <returns>0 on success; -1 on failure.</returns>
+    /// <param name="port">TCP port (0 = OS-assigned ephemeral port).</param>
+    /// <returns>0 on success; -1 on failure (call kestrel_last_error for details).</returns>
     [UnmanagedCallersOnly(EntryPoint = "kestrel_start")]
     public static int Start(int port)
     {
@@ -31,8 +28,9 @@ public static class NativeBootstrap
             lock (Gate)
             {
                 if (_host is not null) return 0;
-                var (host, _) = ServerComposition.CreateHost(port);
+                var (host, boundPort) = ServerComposition.CreateHost(port);
                 _host = host;
+                DiagInfo.PortForInfo = boundPort;
             }
             return 0;
         }
@@ -53,11 +51,59 @@ public static class NativeBootstrap
             {
                 _host?.Dispose();
                 _host = null;
+                DiagInfo.PortForInfo = 0;
             }
         }
         catch
         {
             // Never throw across the native boundary.
+        }
+    }
+
+    /// <summary>
+    /// Copies the last error captured by the pipeline as UTF-8 into <paramref name="buf"/>.
+    /// Format: <c>type|message|correlationId</c>.
+    /// </summary>
+    /// <param name="buf">Caller-allocated buffer to receive the UTF-8 string.</param>
+    /// <param name="bufLen">Size of <paramref name="buf"/> in bytes.</param>
+    /// <returns>
+    /// Bytes written (&gt;=1) on success; 0 if no error is buffered;
+    /// -(bytes needed) if the buffer is too small.
+    /// </returns>
+    [UnmanagedCallersOnly(EntryPoint = "kestrel_last_error")]
+    public static int LastError(byte* buf, int bufLen)
+    {
+        try
+        {
+            if (buf is null || bufLen <= 0) return -1;
+            return NativeErrorBuffer.CopyInto(new Span<byte>(buf, bufLen));
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Copies a JSON diagnostic snapshot as UTF-8 into <paramref name="buf"/>.
+    /// Includes port, uptime, request count, runtime version, and OS.
+    /// </summary>
+    /// <param name="buf">Caller-allocated buffer to receive the UTF-8 JSON.</param>
+    /// <param name="bufLen">Size of <paramref name="buf"/> in bytes.</param>
+    /// <returns>
+    /// Bytes written on success; -(bytes needed) if the buffer is too small; -1 on error.
+    /// </returns>
+    [UnmanagedCallersOnly(EntryPoint = "kestrel_info")]
+    public static int Info(byte* buf, int bufLen)
+    {
+        try
+        {
+            if (buf is null || bufLen <= 0) return -1;
+            return DiagInfo.CopySnapshotInto(new Span<byte>(buf, bufLen));
+        }
+        catch
+        {
+            return -1;
         }
     }
 }

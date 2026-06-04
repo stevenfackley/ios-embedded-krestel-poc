@@ -160,6 +160,8 @@ internal sealed class LimitsModule : ICapabilityModule
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage(
+        "Trimming", "IL2026", Justification = "Intentional: demonstrating StackFrame.GetMethod() trim limitation")]
     private static CapabilityResult RunStackTrace()
     {
         var st = new StackTrace(fNeedFileInfo: false);
