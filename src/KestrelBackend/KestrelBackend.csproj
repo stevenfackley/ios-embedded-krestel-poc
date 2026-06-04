@@ -45,6 +45,9 @@
     <!-- Compile-time request-delegate generation: makes Minimal API MapGet lambdas
          AOT-safe (no runtime reflection emit). -->
     <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <!-- Activates trim+AOT+single-file Roslyn analyzers on every plain `dotnet build`
+         without needing the native toolchain. Proves AOT-safety on Windows. -->
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <!-- ASP.NET Core is opt-in. The framework pack is NOT published for the iOS RID,
