@@ -18,11 +18,14 @@ internal sealed class RawHttpHost : IBackendHost
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
 
+    public int BoundPort { get; private set; }
+
     public void Start(int port)
     {
         _cts = new CancellationTokenSource();
         _listener = new TcpListener(IPAddress.Loopback, port);
         _listener.Start();
+        BoundPort = ((System.Net.IPEndPoint)_listener.LocalEndpoint).Port;
 
         // Fire-and-forget accept loop on a background thread; Start returns at once.
         _ = Task.Run(() => AcceptLoopAsync(_listener, _cts.Token));
@@ -36,6 +39,8 @@ internal sealed class RawHttpHost : IBackendHost
         _cts?.Dispose();
         _cts = null;
     }
+
+    public void Dispose() => Stop();
 
     private async Task AcceptLoopAsync(TcpListener listener, CancellationToken ct)
     {
@@ -74,6 +79,14 @@ internal sealed class RawHttpHost : IBackendHost
                 (string status, string contentType, byte[] body) = Route(target);
 
                 await WriteResponseAsync(stream, status, contentType, body, ct).ConfigureAwait(false);
+
+                // Graceful TCP close: signal end of our sends so the client can read the
+                // response, then drain unread request bytes. Without this, closing a socket
+                // with unread data in the receive buffer sends RST on Windows, which aborts
+                // the response before the client finishes reading it.
+                client.Client.Shutdown(SocketShutdown.Send);
+                var drain = new byte[4096];
+                while (await stream.ReadAsync(drain, ct).ConfigureAwait(false) > 0) { }
             }
             catch
             {

@@ -63,4 +63,8 @@
     <ProjectReference Include="..\LegacyLib\LegacyLib.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="KestrelBackend.Tests" />
+  </ItemGroup>
+
 </Project>
