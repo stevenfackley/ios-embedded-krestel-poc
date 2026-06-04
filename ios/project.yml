@@ -62,3 +62,19 @@ targets:
       # ships in the app's Frameworks/ dir and dyld finds it via @rpath at launch.
       - framework: ../build/artifacts/KestrelBackend.xcframework
         embed: true
+
+schemes:
+  EmbeddedKestrelApp:
+    build:
+      targets:
+        EmbeddedKestrelApp: all
+    run:
+      config: Release
+    test:
+      config: Release
+    profile:
+      config: Release
+    analyze:
+      config: Release
+    archive:
+      config: Release
