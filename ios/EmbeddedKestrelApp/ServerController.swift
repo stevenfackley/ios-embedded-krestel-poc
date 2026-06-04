@@ -1,120 +1,154 @@
-// ServerController.swift
+// ServerController.swift — ObservableObject that owns the embedded server lifecycle
+// and provides typed URLSession API calls used by all views.
 //
-// Bridges the Swift world to the embedded .NET server in two layers:
-//   1. lifecycle  — calls the native kestrel_start / kestrel_stop entry points
-//   2. transport  — a URLSession client that talks to the loopback endpoint
-//
-// kestrel_start is synchronous on the native side and returns only once the
-// listener is bound (see KestrelHost.Start / RawHttpHost.Start), so once
-// startIfNeeded() reports success the server is guaranteed to be accepting.
+// Thread model: @MainActor. All @Published mutations happen on the main actor.
+// Network `await`s suspend without blocking — the main run loop stays live.
 
 import Foundation
 
-/// Decoded shape of the JSON the server emits. The keys are camelCase because
-/// ApiJsonContext is configured with JsonKnownNamingPolicy.CamelCase on the
-/// .NET side — keep these property names identical to the wire contract.
-struct ProcessResponse: Decodable, Sendable {
-    let input: String
-    let hash: String
-    let length: Int
-    let processedAtUtc: String
-}
-
-/// Errors surfaced to the UI layer. LocalizedError gives us a clean message to
-/// render without leaking transport details.
-enum ServerError: LocalizedError {
-    case notStarted
-    case badURL
-    case unexpectedStatus(Int)
-
-    var errorDescription: String? {
-        switch self {
-        case .notStarted:
-            return "The embedded server failed to start."
-        case .badURL:
-            return "Could not construct the request URL."
-        case .unexpectedStatus(let code):
-            return "Server returned HTTP \(code)."
-        }
-    }
-}
-
-/// Owns the embedded server's lifetime and provides the typed client.
-/// `@unchecked Sendable` because the only mutable state (`started`) is guarded
-/// by the `stateLock` below; everything else is immutable.
-final class ServerController: @unchecked Sendable {
+@MainActor
+final class ServerController: ObservableObject {
     static let shared = ServerController()
 
-    /// Loopback port the native host binds. Int32 matches the C `int` argument.
-    let port: Int32 = 5001
+    @Published private(set) var isRunning = false
+    @Published private(set) var boundPort = 0
+    @Published private(set) var statusMessage = "Not started"
 
     private let session: URLSession
-    private let stateLock = NSLock()
-    private var started = false
 
     private init() {
-        // Short timeouts: this is an in-process server on loopback, so a slow
-        // response means something is wrong rather than a flaky network.
-        let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 5
-        config.waitsForConnectivity = false
-        self.session = URLSession(configuration: config)
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.timeoutIntervalForRequest  = 10
+        cfg.waitsForConnectivity       = false
+        session = URLSession(configuration: cfg)
     }
 
-    /// Boots the embedded server exactly once. Returns true if it is running.
-    /// Call this off the main thread during launch — the native side does a
-    /// brief synchronous bind before returning.
-    @discardableResult
-    func startIfNeeded() -> Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
+    // MARK: - Lifecycle
 
-        if started {
-            return true
+    func startIfNeeded() async {
+        guard !isRunning else { return }
+        statusMessage = "Starting…"
+        let rc = kestrel_start(0)   // 0 = OS-assigned ephemeral port
+        guard rc == 0 else {
+            statusMessage = "Start failed (rc=\(rc))"
+            return
         }
-
-        // 0 == success per the NativeBootstrap contract; anything else is failure.
-        let rc = kestrel_start(port)
-        started = (rc == 0)
-        return started
+        boundPort = discoverPort()
+        isRunning = boundPort > 0
+        statusMessage = isRunning ? "Running on port \(boundPort)" : "Started — port unknown"
     }
 
-    /// Stops the embedded server if it is running.
     func stop() {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-
-        guard started else { return }
         kestrel_stop()
-        started = false
+        isRunning     = false
+        boundPort     = 0
+        statusMessage = "Stopped"
     }
 
-    /// Round-trips `input` through the server → LegacyLib.DataProcessor → JSON.
-    /// This is the line that proves the whole thesis: a netstandard2.0 type
-    /// reached from Swift over in-process HTTP with no rewrite.
-    func fetchProcessed(input: String) async throws -> ProcessResponse {
-        guard startIfNeeded() else {
-            throw ServerError.notStarted
+    // MARK: - Port discovery
+
+    private func discoverPort() -> Int {
+        var buf = [UInt8](repeating: 0, count: 1024)
+        let written = buf.withUnsafeMutableBufferPointer {
+            kestrel_info($0.baseAddress, Int32($0.count))
         }
+        guard written > 0 else { return 0 }
+        guard let info = try? decoder.decode(
+            DiagInfoResponse.self, from: Data(buf.prefix(Int(written))))
+        else { return 0 }
+        return info.port
+    }
 
-        var components = URLComponents()
-        components.scheme = "http"
-        components.host = "127.0.0.1"
-        components.port = Int(port)
-        components.path = "/api/process"
-        components.queryItems = [URLQueryItem(name: "input", value: input)]
+    // MARK: - Shared URL / decoder helpers
 
-        guard let url = components.url else {
-            throw ServerError.badURL
+    private var decoder: JSONDecoder { JSONDecoder() }
+
+    private func url(_ path: String) throws -> URL {
+        guard isRunning else { throw APIError.serverNotRunning }
+        guard let u = URL(string: "http://127.0.0.1:\(boundPort)\(path)") else {
+            throw APIError.badURL
         }
+        return u
+    }
 
-        let (data, response) = try await session.data(from: url)
+    private func get<T: Decodable>(_ path: String) async throws -> T {
+        let data = try await session.data(from: try url(path)).0
+        return try decoder.decode(T.self, from: data)
+    }
 
-        if let http = response as? HTTPURLResponse,
-           !(200...299).contains(http.statusCode) {
-            throw ServerError.unexpectedStatus(http.statusCode)
-        }
+    private func post<T: Decodable>(_ path: String, body: Data? = nil) async throws -> T {
+        var req = URLRequest(url: try url(path))
+        req.httpMethod = "POST"
+        req.httpBody   = body
+        let data = try await session.data(for: req).0
+        return try decoder.decode(T.self, from: data)
+    }
 
-        return try JSONDecoder().decode(ProcessResponse.self, from: data)
+    private func postVoid(_ path: String) async throws {
+        var req = URLRequest(url: try url(path))
+        req.httpMethod = "POST"
+        _ = try await session.data(for: req)
+    }
+
+    private func delete(_ path: String) async throws {
+        var req = URLRequest(url: try url(path))
+        req.httpMethod = "DELETE"
+        _ = try await session.data(for: req)
+    }
+
+    // MARK: - Capabilities API
+
+    func fetchDescriptors() async throws -> [CapabilityDescriptor] {
+        try await get("/api/capabilities")
+    }
+
+    func runProbe(_ id: String) async throws -> CapabilityResult {
+        let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        return try await post("/api/capabilities/\(encoded)/run")
+    }
+
+    func runAll() async throws -> [CapabilityResult] {
+        try await post("/api/capabilities/run-all")
+    }
+
+    // MARK: - Diagnostics API
+
+    func fetchDiagInfo() async throws -> DiagInfoResponse {
+        try await get("/api/diag/info")
+    }
+
+    func fetchLogs() async throws -> [LogEntry] {
+        try await get("/api/diag/logs")
+    }
+
+    // MARK: - Playground APIs
+
+    func hashText(_ input: String) async throws -> CryptoHashResult {
+        let q = input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? input
+        return try await post("/api/crypto/hash?input=\(q)")
+    }
+
+    func compressText(_ input: String) async throws -> CompressResult {
+        let q = input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? input
+        return try await post("/api/compress?input=\(q)")
+    }
+
+    func matchRegex(input: String) async throws -> RegexResult {
+        let q = input.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? input
+        return try await post("/api/regex?input=\(q)")
+    }
+
+    // Notes CRUD
+    func fetchNotes() async throws -> [NoteRecord] {
+        try await get("/api/notes")
+    }
+
+    func createNote(body: String) async throws -> NoteRecord {
+        let q = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? body
+        return try await post("/api/notes?body=\(q)")
+    }
+
+    func deleteNote(id: Int) async throws {
+        try await delete("/api/notes/\(id)")
     }
 }
