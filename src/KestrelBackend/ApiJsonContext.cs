@@ -30,6 +30,7 @@ namespace KestrelBackend;
 // Persistence
 [JsonSerializable(typeof(NoteRecord))]
 [JsonSerializable(typeof(List<NoteRecord>))]
+[JsonSerializable(typeof(SqlcipherProof))]
 // Networking
 [JsonSerializable(typeof(FetchResult))]
 // Text

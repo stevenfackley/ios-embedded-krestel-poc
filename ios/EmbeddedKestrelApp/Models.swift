@@ -171,6 +171,35 @@ enum JSONValue: Codable, Sendable {
     }
 }
 
+// MARK: - JSONValue display helpers (consumed by CapabilityDetailView)
+
+extension JSONValue {
+    /// Human-readable leaf rendering for key/value detail rows.
+    var displayString: String {
+        switch self {
+        case .string(let s): return s
+        case .bool(let b):   return b ? "true" : "false"
+        case .number(let n): return n == n.rounded() ? String(Int(n)) : String(n)
+        case .null:          return "null"
+        case .object:        return "{…}"
+        case .array(let a):  return "[\(a.count)]"
+        }
+    }
+
+    /// Bool payload when this value is a JSON boolean, else nil — lets a view show
+    /// a check/x icon for proof flags (e.g. SQLCipher wrongKeyRejected).
+    var boolValue: Bool? {
+        if case .bool(let b) = self { return b }
+        return nil
+    }
+
+    /// Sorted key/value pairs when this is a JSON object, else nil.
+    var objectPairs: [(key: String, value: JSONValue)]? {
+        guard case .object(let dict) = self else { return nil }
+        return dict.sorted { $0.key < $1.key }.map { (key: $0.key, value: $0.value) }
+    }
+}
+
 // MARK: - Errors
 
 enum APIError: LocalizedError {

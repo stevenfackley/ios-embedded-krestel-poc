@@ -1,67 +1,66 @@
-// CapabilitiesView.swift — Grouped list of all capability probes with run/filter.
+// CapabilitiesView.swift — Table-of-contents over all capability probes:
+// collapsible category sections (DisclosureGroup) whose rows drill into a
+// per-capability CapabilityDetailView. State lives in CapabilitiesViewModel so
+// runs started on a detail page are reflected here after popping back.
 
 import SwiftUI
 
 struct CapabilitiesView: View {
     @EnvironmentObject private var server: ServerController
+    @StateObject private var viewModel = CapabilitiesViewModel()
 
-    @State private var descriptors: [CapabilityDescriptor] = []
-    @State private var results: [String: CapabilityResult] = [:]
-    @State private var running: Set<String> = []
-    @State private var filter: Verdict? = nil
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-
-    private var grouped: [(String, [CapabilityDescriptor])] {
-        let shown = filter == nil ? descriptors : descriptors.filter { $0.verdict == filter }
-        let categories = shown.map(\.category).uniqued()
-        return categories.map { cat in (cat, shown.filter { $0.category == cat }) }
-    }
+    // Categories are expanded unless the user collapses them (so the TOC opens
+    // fully populated rather than as a wall of empty headers).
+    @State private var collapsed: Set<String> = []
 
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
+                if viewModel.isLoading {
                     ProgressView("Loading capabilities…")
-                } else if descriptors.isEmpty {
+                } else if viewModel.descriptors.isEmpty {
                     ContentUnavailableView(
                         "No capabilities",
                         systemImage: "exclamationmark.triangle",
                         description: Text("Start the server and refresh")
                     )
                 } else {
-                    capabilityList
+                    tableOfContents
                 }
             }
             .navigationTitle("Capabilities")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) { filterMenu }
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Refresh") { Task { await load() } }
+                    Button("Refresh") { Task { await viewModel.load(using: server) } }
                 }
             }
-            .task { await load() }
+            .task { await viewModel.load(using: server) }
         }
     }
 
-    // MARK: - List
+    // MARK: - TOC
 
-    private var capabilityList: some View {
+    private var tableOfContents: some View {
         List {
-            ForEach(grouped, id: \.0) { category, items in
-                Section(category) {
+            ForEach(viewModel.grouped, id: \.0) { category, items in
+                DisclosureGroup(isExpanded: expansion(for: category)) {
                     ForEach(items) { descriptor in
-                        ProbeRow(
-                            descriptor: descriptor,
-                            result: results[descriptor.id],
-                            isRunning: running.contains(descriptor.id)
-                        ) {
-                            Task { await runProbe(descriptor.id) }
+                        NavigationLink {
+                            CapabilityDetailView(descriptor: descriptor, viewModel: viewModel)
+                        } label: {
+                            CapabilityTocRow(
+                                descriptor: descriptor,
+                                result: viewModel.results[descriptor.id],
+                                isRunning: viewModel.isRunning(descriptor.id)
+                            )
                         }
                     }
+                } label: {
+                    categoryHeader(category, count: items.count)
                 }
             }
-            if let errorMessage {
+            if let errorMessage = viewModel.errorMessage {
                 Section("Error") {
                     Text(errorMessage).foregroundStyle(.red)
                 }
@@ -69,106 +68,78 @@ struct CapabilitiesView: View {
         }
     }
 
+    private func categoryHeader(_ category: String, count: Int) -> some View {
+        HStack {
+            Text(category).font(.headline)
+            Spacer()
+            Text("\(count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(.quaternary, in: Capsule())
+        }
+    }
+
+    /// Expanded-by-default binding backed by the `collapsed` set.
+    private func expansion(for category: String) -> Binding<Bool> {
+        Binding(
+            get: { !collapsed.contains(category) },
+            set: { isExpanded in
+                if isExpanded { collapsed.remove(category) } else { collapsed.insert(category) }
+            }
+        )
+    }
+
     // MARK: - Filter menu
 
     private var filterMenu: some View {
         Menu {
-            Button("All") { filter = nil }
+            Button("All") { viewModel.filter = nil }
             Divider()
             ForEach(Verdict.allCases, id: \.self) { v in
-                Button { filter = v } label: {
+                Button { viewModel.filter = v } label: {
                     Label(v.label, systemImage: v.symbol)
                 }
             }
         } label: {
-            Image(systemName: filter == nil ? "line.3.horizontal.decrease.circle" :
+            Image(systemName: viewModel.filter == nil ? "line.3.horizontal.decrease.circle" :
                               "line.3.horizontal.decrease.circle.fill")
-        }
-    }
-
-    // MARK: - Data loading
-
-    private func load() async {
-        guard server.isRunning else { return }
-        isLoading = true
-        defer { isLoading = false }
-        do {
-            descriptors = try await server.fetchDescriptors()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private func runProbe(_ id: String) async {
-        running.insert(id)
-        defer { running.remove(id) }
-        do {
-            results[id] = try await server.runProbe(id)
-        } catch {
-            errorMessage = error.localizedDescription
         }
     }
 }
 
-// MARK: - ProbeRow
+// MARK: - TOC row
 
-struct ProbeRow: View {
+struct CapabilityTocRow: View {
     let descriptor: CapabilityDescriptor
     let result: CapabilityResult?
     let isRunning: Bool
-    let onRun: () -> Void
+
+    // Show the actual verdict once a run exists, otherwise the descriptor's expected.
+    private var verdict: Verdict { result?.verdict ?? descriptor.verdict }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Image(systemName: actualVerdict.symbol)
-                    .foregroundStyle(actualVerdict.color)
-                Text(descriptor.title)
-                    .font(.headline)
-                Spacer()
-                if isRunning {
-                    ProgressView().scaleEffect(0.7)
-                } else {
-                    Button("Run", action: onRun)
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                }
-            }
-            Text(descriptor.id)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .monospaced()
-            if let detail = result?.detail {
-                Text(detail)
-                    .font(.caption)
+        HStack(spacing: 10) {
+            Image(systemName: verdict.symbol)
+                .foregroundStyle(verdict.color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(descriptor.title).font(.body)
+                Text(descriptor.id)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            } else {
-                Text(descriptor.detail)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
+                    .monospaced()
             }
-            if let ms = result?.elapsedMs, ms > 0 {
-                Text(String(format: "%.1f ms", ms))
+            Spacer()
+            if isRunning {
+                ProgressView().scaleEffect(0.7)
+            } else if result != nil {
+                Image(systemName: "checkmark.seal")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.vertical, 4)
-    }
-
-    private var actualVerdict: Verdict {
-        result?.verdict ?? descriptor.verdict
-    }
-}
-
-// MARK: - Uniqued helper
-
-private extension Array where Element: Hashable {
-    func uniqued() -> [Element] {
-        var seen = Set<Element>()
-        return filter { seen.insert($0).inserted }
+        .padding(.vertical, 2)
     }
 }
 
