@@ -17,9 +17,13 @@ namespace KestrelBackend;
 internal sealed class KestrelHost : IBackendHost
 {
     private WebApplication? _app;
+    private int _port;
+
+    public int BoundPort => _port;
 
     public void Start(int port)
     {
+        _port = port;
         // CreateSlimBuilder omits the heavyweight hosting defaults (config providers,
         // logging back-ends, etc.) that fight the trimmer — the right base for AOT.
         WebApplicationBuilder builder = WebApplication.CreateSlimBuilder();
@@ -63,5 +67,7 @@ internal sealed class KestrelHost : IBackendHost
         _app?.StopAsync().GetAwaiter().GetResult();
         _app = null;
     }
+
+    public void Dispose() => Stop();
 }
 #endif

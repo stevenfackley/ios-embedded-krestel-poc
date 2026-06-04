@@ -3,4 +3,7 @@
     <Project Path="src/KestrelBackend/KestrelBackend.csproj" />
     <Project Path="src/LegacyLib/LegacyLib.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/KestrelBackend.Tests/KestrelBackend.Tests.csproj" />
+  </Folder>
 </Solution>

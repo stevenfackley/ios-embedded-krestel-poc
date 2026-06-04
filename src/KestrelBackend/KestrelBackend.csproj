@@ -45,6 +45,10 @@
     <!-- Compile-time request-delegate generation: makes Minimal API MapGet lambdas
          AOT-safe (no runtime reflection emit). -->
     <EnableRequestDelegateGenerator>true</EnableRequestDelegateGenerator>
+    <!-- Activates trim+AOT+single-file Roslyn analyzers on every plain `dotnet build`
+         without needing the native toolchain. Proves AOT-safety on Windows. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!-- ASP.NET Core is opt-in. The framework pack is NOT published for the iOS RID,
@@ -60,7 +64,19 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\LegacyLib\LegacyLib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="KestrelBackend.Tests" />
   </ItemGroup>
 
 </Project>
