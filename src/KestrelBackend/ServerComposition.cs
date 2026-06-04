@@ -54,8 +54,17 @@ internal static class ServerComposition
 
     private static void RegisterModules(IServiceCollection services)
     {
-        // Phase 2 modules registered here as each is added.
-        // (Empty until Phase 2; the catalog starts with zero descriptors.)
+        services.AddSingleton<ICapabilityModule, RuntimeModule>();
+        services.AddSingleton<ICapabilityModule, CryptoModule>();
+        services.AddSingleton<ICapabilityModule, SerializationModule>();
+        services.AddSingleton<ICapabilityModule, PersistenceModule>();
+        services.AddSingleton<ICapabilityModule, NetworkingModule>();
+        services.AddSingleton<ICapabilityModule, ConcurrencyModule>();
+        services.AddSingleton<ICapabilityModule, NumericsModule>();
+        services.AddSingleton<ICapabilityModule, TextModule>();
+        services.AddSingleton<ICapabilityModule, CompressionModule>();
+        services.AddSingleton<ICapabilityModule>(sp => new CompositionModule(sp));
+        services.AddSingleton<ICapabilityModule, LegacyModule>();
     }
 
     private static Router BuildRoutes(RingBufferSink sink, CapabilityCatalog catalog, ILogger logger)

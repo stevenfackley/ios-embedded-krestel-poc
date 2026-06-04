@@ -63,7 +63,10 @@ public sealed class CatalogTests
         resp.EnsureSuccessStatusCode();
         var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
         Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
-        Assert.Equal("test.ok", doc.RootElement[0].GetProperty("id").GetString());
+        // extra modules append after registered modules — search by id, not position
+        bool found = doc.RootElement.EnumerateArray()
+            .Any(e => e.GetProperty("id").GetString() == "test.ok");
+        Assert.True(found, "test.ok descriptor not found in capabilities list");
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────

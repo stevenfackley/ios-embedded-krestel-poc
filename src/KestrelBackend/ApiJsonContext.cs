@@ -19,6 +19,23 @@ namespace KestrelBackend;
 [JsonSerializable(typeof(IReadOnlyList<CapabilityDescriptor>))]
 [JsonSerializable(typeof(CapabilityResult))]
 [JsonSerializable(typeof(IReadOnlyList<CapabilityResult>))]
+// Crypto
+[JsonSerializable(typeof(CryptoHashResult))]
+[JsonSerializable(typeof(AnonymousShaResult))]
+// Serialization
+[JsonSerializable(typeof(SerializeResult))]
+[JsonSerializable(typeof(Animal))]
+[JsonSerializable(typeof(Dog))]
+[JsonSerializable(typeof(Cat))]
+// Persistence
+[JsonSerializable(typeof(NoteRecord))]
+[JsonSerializable(typeof(List<NoteRecord>))]
+// Networking
+[JsonSerializable(typeof(FetchResult))]
+// Text
+[JsonSerializable(typeof(RegexResult))]
+// Compression
+[JsonSerializable(typeof(CompressResult))]
 internal partial class ApiJsonContext : JsonSerializerContext
 {
 }
